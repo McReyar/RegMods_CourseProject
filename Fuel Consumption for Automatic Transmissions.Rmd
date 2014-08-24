@@ -1,0 +1,248 @@
+---
+title: "Is Fuel Consumption for Automatic Transmissions Higher?"
+author: "Student 972147 / McReyar"
+date: "Sunday, August 24, 2014"
+output:
+  pdf_document:
+    fig_caption: yes
+    fig_height: 1.8
+    fig_width: 3.5
+    highlight: pygments
+    latex_engine: xelatex
+geometry: margin=0.5in
+mainfont: Calibri
+fontsize: 10pt
+papersize: letter
+classoption: twocolumn
+---
+
+```{r initialize, echo=FALSE}
+library(knitr)
+library(xtable)
+library(scales)
+library(car)
+options(xtable.table.placement="!htb")
+opts_chunk$set(echo = FALSE)
+options(xtable.comment = FALSE)
+cars <- mtcars[,c(1,9,2:8,10:11)]
+cars$am <- factor(cars$am, labels = c("automatic","manual"))
+cars$vs <- factor(cars$vs, labels = c("v","straight"))
+
+
+fit <- list()
+variables = as.vector("1")
+fit <- lm(mpg ~ 1, data = cars)
+for(i in 1:(ncol(cars)-1)){
+    notused <- names(cars)[!names(cars) %in% c(variables,"mpg")]
+    for(j in 1:(ncol(cars)-i)){
+        temp <- lm(as.formula(paste("mpg ~ ",paste(c(variables, notused[j]), collapse="+")))
+                             ,data=cars)
+        if(j==1){
+            fit[[i+1]] <- temp
+            best <- notused[j]
+        }
+        else if(summary(temp)$adj.r.squared > summary(fit[[i+1]])$adj.r.squared){
+            fit[[i+1]] <- temp
+            best <- notused[j]            
+        }
+    }
+    variables <- c(variables,best)
+}
+```
+Executive Summary[^1]
+---------------------
+Using data from the 1974 Motor Trend US magazine the relation between fuel consumption and automatic transmission is examined. At first glance automatic transmission seem to use more fuel, however the correlation with several other variables is very high.  
+Therefore the based regression model is evaluated based on the Akaike information criterion (AIC) by using forward and backward selection. Finally interaction terms are included and as those models don't use transmission type, there is not enough evidence to conclude that the transmission type is the cause for higher gasoline consumption.
+  
+  
+  
+Exploratory Data Analysis
+-------------------------
+Following variables are available in the dataset:
+\begin{table}[ht]
+\centering
+\begin{tabular}{llllllllllll}
+  \hline
+ & Variable & Description                              \\ 
+  \hline
+ & mpg      & Gasoline Milage (MPG)                    \\
+ & cyl      & Number of Cylinders                      \\
+ & disp     & Engine Size (Cubic Inches)               \\
+ & hp       & Horespower                               \\
+ & drat     & Final Drive Ratio                        \\
+ & wt       & Weight (in 1000 lbs)                     \\
+ & qsec     & Quarter Mile Time (Seconds)              \\
+ & vs       & Engine Shape (V, Straight)               \\
+ & am       & Transmission Type (Automatic, Manual)    \\
+ & gear     & Number of Transmission Speeds            \\ 
+ & carb     & Number of Carburetor Barrles             \\
+  \hline
+\end{tabular}
+\caption{Data Description} 
+\end{table}
+As can be seen in following boxplot, it looks like automatic transmission types have lower gasoline mileage than manual ones:
+
+```{r boxplot, fig.pos='H', fig.cap = "Gasoline Mileage by Transmission Type"}
+par(mar=c(1.8,4,0,0))
+boxplot(cars$mpg~cars$am, col="lightblue", horizontal=TRUE, cex.axis=0.8, las=1 )
+```
+
+However they are also highly correlated with other variables (especially number of transmission speeds (`r round(cor(mtcars$am, mtcars$gear),2)`), final drive ratio (`r round(cor(mtcars$am, mtcars$drat),2)`), weight and (`r round(cor(mtcars$am, mtcars$wt),2)`)), which can be seen in [Figure 3](#correlation-of-variables).
+As single variables weight (`r round(cor(mtcars$mpg, mtcars$wt),2)`), engine size (`r round(cor(mtcars$mpg, mtcars$disp),2)`), number of cylinders (`r round(cor(mtcars$mpg, mtcars$cyl),2)`) and horespower (`r round(cor(mtcars$mpg, mtcars$hp),2)`) seem to have the highest impact on fuel consumption, but again all of these variables are highly correlated with each other.  
+This is reflected in the variance inflation factors - the increase in standard deviation for the respective regressor can be seen in following table:
+```{r vif, results='asis'}
+print(xtable(t(sqrt(vif(lm(mpg ~ ., data=cars)))[1:5])), include.rownames = FALSE)
+print(xtable(t(sqrt(vif(lm(mpg ~ ., data=cars)))[6:10]) , caption="Increase in Standard Deviation"), include.rownames = FALSE)
+```
+
+Regression Models
+-----------------
+To better estimate the impact of the variables on gasoline mileage, the best model for each number of predictors is chosen based on Akaike information criterion (AIC). First a backward selection approach is taken:
+```{r bwd, results='asis'}
+fit.bwd <- step(lm(mpg ~ .,data=cars)
+               ,scope=list(upper = ~ cyl+disp+hp+drat+wt+qsec+vs+am+gear+carb, lower = ~1)
+               ,direction="backward", trace = FALSE)
+print(xtable(fit.bwd$anova, caption = "Backward Selection")
+     ,include.rownames = FALSE)
+```
+This results in model based on weight, quarter mile time and transmission type that has $R^2$ `r summary(fit.bwd)$r.squared` which means that `r round(summary(fit.bwd)$r.squared*100,2)`% of the variance of the gasoline mileage can be explained.
+```{r bwdmodel, results='asis'}
+xtable(summary(fit.bwd)$coeff, caption="Best Model Based on Backward Selection")
+```
+Based on this model, we are 95% confident that cars with an automatic transmission drive get
+`r round(confint(fit.bwd)[2,1],2)` to `r round(confint(fit.bwd)[2,2],2)` miles less out of a gallon with everything else beeing equal.  
+By forward selection, following predictors are chosen:
+```{r fwd, results='asis'}
+fit.fwd <- step(lm(mpg ~ 1,data=cars)
+               ,scope=list(upper = ~ cyl+disp+hp+drat+wt+qsec+vs+am+gear+carb, lower = ~1)
+               ,direction="forward", trace = FALSE)
+print(xtable(fit.fwd$anova, caption="Forward Selection")
+     ,include.rownames = FALSE)
+```
+For this model, transgression type isn't considered at all, but it still explains `r round(summary(fit.fwd)$r.squared*100,2)`% of the variability ($R^2$=`r summary(fit.fwd)$r.squared`).
+```{r fwdmodel, results='asis'}
+xtable(summary(fit.fwd)$coeff, caption="Best Model Based on Forward Selection")
+```
+Although number of cylinders and horse power are included in the model, they don't seem to be significant.  
+As weight is used in both models it can be assumed that it has an impact on gasoline mileage. What is more it would be logical that the influence of horse power is bigger if the car weights more. Therefore adding an interaction term $wt*hp$ is examined.
+```{r bwd2, results='asis'}
+fit.bwd2 <- step(lm(mpg ~ .+hp:wt,data=cars)
+                ,scope=list(upper = ~ cyl+disp+hp*wt+drat+qsec+vs+am+gear+carb, lower = ~1)
+                ,direction="backward", trace = FALSE)
+print(xtable(fit.bwd2$anova, caption="Backward Selection with Interaction Term")
+     ,include.rownames = FALSE)
+```
+With the interaction term transgression type isn't used in the best model evaluated by backward selection, which explains `r round(summary(fit.bwd2)$r.squared*100,2)`% of the variability ($R^2$=`r summary(fit.bwd2)$r.squared`)
+```{r bwdmodel2, results='asis'}
+xtable(summary(fit.bwd2)$coeff, caption="Best Model Based on Backward Selection with Interaction Term")
+```
+Number of cylinders, number of transmission speeds and quarter mile time have a p-value over 0.05, but the interaction between weight and horse power seems to be a good predictor.
+With using forward selection following variables are chosen as predictors:
+```{r fwd2, results='asis'}
+fit.fwd2 <- step(lm(mpg ~ 1,data=cars)
+                ,scope=list(upper = ~ cyl+disp+hp*wt+drat+qsec+vs+am+gear+carb, lower = ~1)
+                ,direction="forward", trace = FALSE)
+print(xtable(fit.fwd2$anova, caption="Forward Selection with Interaction Term")
+     ,include.rownames = FALSE)
+```
+Although this model uses only 4 predictors, it can still explain `r round(summary(fit.fwd2)$r.squared*100,2)`% of the variability ($R^2$=`r summary(fit.fwd2)$r.squared`).
+```{r fwdmodel2, results='asis'}
+xtable(summary(fit.fwd2)$coeff, caption="Best Model Based on Forward Selection with Interaction Term")
+```
+The interaction term again has a very low p-value and is therefore highly significant.  
+To choose the best model, the model without interaction term that includes transmission type, as well as both models with interaction term are compared with ANOVA:
+```{r anova, results='asis'}
+print(xtable(anova(fit.bwd,fit.fwd2,fit.bwd2), caption="Model Comparison with Anova")
+     ,include.rownames = FALSE)
+```
+The model with 6 predictors has a p-value that is larger than 0.05 and therefore isn't used. Hower there is enough evidence to take the model that uses weight, number of cylinders, horsepower and the interaction between weight and horsepower over the model which uses transmission type.
+
+```{r resid, fig.cap="Residuals vs Fitted", fig.height=2.2}
+par(mar=c(3.8,3.8,0,0))
+plot(fit.fwd2,which = 1, cex.axis=0.8, cex.lab=0.8, caption = NA)
+```
+
+The variance of the residuals is approximately constant, and as can be seen in [Figure 4](#diagnostics-for-linear-regression) the residuals are roughly normal distributed and there are no outliers that have high influence.
+
+Conclusion
+----------
+Based on this analysis gasoline mileage is affected by weight (`r round(abs(confint(fit.fwd2)[2,2]),2)` to `r round(abs(confint(fit.fwd2)[2,1]),2)` less mpg per 1000lbs)[^2], horsepower (`r round(abs(confint(fit.fwd2)[4,2]),2)` to `r round(abs(confint(fit.fwd2)[4,1]),2)` less mpg per hp) and the product of weight and horse power (`r round(abs(confint(fit.fwd2)[5,1]),2)` to `r round(abs(confint(fit.fwd2)[5,2]),2)` more mpg per $wt*hp$). This means that heavier cars actually are more economic when they have more horse power which could have to do with the fact that the motor doesn't run at its limit.  
+As far as transgression type is concerned, there is not enough evidence to conclude that it has an impact on gasoline mileage. This doesn't mean that there definitely is no impact, but based on this data no relation could be found. 
+\onecolumn
+
+Appendix
+========
+Correlation of Variables
+------------------------
+
+```{r corrplot, fig.height=7.5, fig.width=7.5, fig.cap="Correlation between Variables", fig.lp="figure", fig.scap="corrplot"}
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)
+{
+    usr <- par("usr"); on.exit(par(usr))
+    par(usr = c(0, 1, 0, 1))
+    r <- abs(cor(x, y))
+    txt <- format(c(r, 0.123456789), digits = digits)[1]
+    txt <- paste0(prefix, txt)
+    if(missing(cex.cor)) cex.cor <- 0.8/strwidth(txt)
+    text(0.5, 0.5, txt, cex = cex.cor * 0.5 *(1+r))
+}
+panel.hist <- function(x, ...)
+{
+    usr <- par("usr"); on.exit(par(usr))
+    par(usr = c(usr[1:2], 0, 1.5) )
+    if(length(unique(x))<5){
+        h <- hist(x, plot = FALSE, breaks = seq(min(x),max(x),length.out = length(unique(x))+1))
+    }
+    else {
+        h <- hist(x, plot = FALSE)
+    }
+    rect(par("usr")[1],par("usr")[3],par("usr")[2],par("usr")[4],col = "gray")
+    breaks <- h$breaks; nB <- length(breaks)
+    y <- h$counts; y <- y/max(y)
+    rect(breaks[-nB], 0, breaks[-1], y, col="red")
+}
+panel.scatter <- function(x, y, col = par("col"), bg = NA, pch = par("pch"), cex = 1, col.smooth = "red", span = 2/3, iter = 3, ...)
+{
+    if(length(unique(y))<5 & length(unique(x))<5){
+        points(jitter(x), jitter(y), pch = pch, col = col, bg = bg, cex = cex)
+    }
+    else if(length(unique(y))<5){
+        par(new = TRUE)
+        boxplot(x~y, axes = FALSE, col = "grey", horizontal = TRUE, ...)
+        points(x, jitter(as.numeric(as.factor(y))), pch = pch, col = col, cex = cex)
+    }
+    else if(length(unique(x))<5){
+        par(new = TRUE)
+        boxplot(y~x, axes = FALSE, col = "grey", ...)
+        points(jitter(as.numeric(as.factor(x))), y, pch = pch, col = col, cex = cex)
+    }
+    else {
+        points(x, y, pch = pch, col = col, bg = bg, cex = cex)
+        ok <- is.finite(x) & is.finite(y)
+        if (any(ok)) 
+            lines(stats::lowess(x[ok], y[ok], f = span, iter = iter), col = col.smooth, ...)
+    }
+}
+pairs(mtcars[,c(1,9,2:8,10:11)]
+     ,upper.panel = panel.scatter
+     ,col = alpha(ifelse(mtcars$am == 0, "steelblue", "forestgreen"), 0.5)
+     ,pch = 16
+     ,lower.panel = panel.cor
+     ,diag.panel  = panel.hist
+     )
+```
+
+\newpage
+
+Diagnostics for Linear Regression
+---------------------------------
+
+```{r diag, fig.height=7.5, fig.width=7.5, fig.cap="Diagnostics for Linear Regression"}
+par(mfrow = c(2, 2), oma = c(0, 0, 2, 0))
+plot(fit.fwd2, cex.axis=0.8, cex.lab=0.8)
+
+```
+
+[^1]: This report is written as course project for [Regression Models](https://www.coursera.org/course/regmods) (regmods-004) taught by Prof. Brian Caffo, PHD on Coursera. For reproducibility the RMD-file is available on [GitHub](https://github.com/McReyar/RegMods_CourseProject).
+
+[^2]: basd on a 95% confidence interval with everything else beeing equal (this applies to all numbers in this paragraph)
